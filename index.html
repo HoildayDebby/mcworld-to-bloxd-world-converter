@@ -24,12 +24,6 @@ The tool will convert it to <code>.bloxdschem</code> for Bloxd.io.</p>
 <div id="actions"></div>
 </div>
 
-<h2>Helpful Links</h2>
-<ul>
-<li><a href="https://cubical.xyz" target="_blank">Cubical — export .schem</a></li>
-<li><a href="https://chunker.app" target="_blank">Chunker — world converter</a></li>
-</ul>
-
 <script src="vendor/jszip.min.js"></script>
 <script src="vendor/m2b.js"></script>
 <script>
@@ -78,7 +72,6 @@ async function handleMcworld(f){
     const buf=await f.arrayBuffer();
     const zip=await JSZip.loadAsync(buf);
 
-    // Detect schematics inside
     const found=[];
     let isFullWorld=false;
 
@@ -97,12 +90,17 @@ async function handleMcworld(f){
     }
 
     if(isFullWorld){
-      // Show convert full world button
-      const btn=document.createElement("button");
-      btn.textContent="Convert Full World";
-      btn.onclick=()=>convertFullWorld(zip);
-      actions.appendChild(btn);
-      setStatus("Full world detected. You can convert all structures.");
+      const btnSingle=document.createElement("button");
+      btnSingle.textContent="Convert Full World → Single Schematic";
+      btnSingle.onclick=()=>convertFullWorldSingle(zip);
+      actions.appendChild(btnSingle);
+
+      const btnMulti=document.createElement("button");
+      btnMulti.textContent="Convert Full World → Multiple Schematics (ZIP)";
+      btnMulti.onclick=()=>convertFullWorldMulti(zip);
+      actions.appendChild(btnMulti);
+
+      setStatus("Full world detected. Choose conversion method below.");
     }
 
     if(found.length===0&&!isFullWorld){
@@ -112,33 +110,56 @@ async function handleMcworld(f){
   }catch(e){setStatus("Error reading .mcworld: "+e);}
 }
 
-// Placeholder full world conversion
-async function convertFullWorld(zip){
+// Placeholder: single schematic combining all blocks
+async function convertFullWorldSingle(zip){
+  setStatus("Converting full world → single schematic...");
   try{
-    setStatus("Converting full world...");
-
-    const zipOutput=new JSZip();
-    let count=0;
-
-    zip.forEach(async(path,entry)=>{
+    // For demo: just collects all schematics inside, combine
+    const allBlobs=[];
+    zip.forEach((path,entry)=>{
       const l=path.toLowerCase();
       if(l.endsWith(".schem")||l.endsWith(".schematic")||l.endsWith(".litematic")){
-        const blob=await entry.async("blob");
-        const result=await m2b.convertFile(blob);
-        zipOutput.file(result.filename,result.blob);
-        count++;
+        allBlobs.push(entry.async("blob"));
       }
     });
+    const blobs=await Promise.all(allBlobs);
+    if(blobs.length===0){setStatus("No schematics inside for single conversion."); return;}
+    
+    const zipOutput=new JSZip();
+    for(let i=0;i<blobs.length;i++){
+      const result=await m2b.convertFile(blobs[i]);
+      zipOutput.file(result.filename,result.blob);
+    }
+    const combined=await zipOutput.generateAsync({type:"blob"});
+    downloadBlob(combined,"full_world_combined.bloxdschem.zip");
+    setStatus("Full world single schematic downloaded (ZIP containing all converted).");
+  }catch(e){setStatus("Conversion failed: "+e);}
+}
 
-    if(count>0){
-      const content=await zipOutput.generateAsync({type:"blob"});
-      downloadBlob(content,"full_world_schematics.zip");
-      setStatus("Full world converted: "+count+" schematics downloaded as ZIP.");
-    } else {
-      setStatus("No schematics found for full world conversion.");
+// Placeholder: multiple schematics per region
+async function convertFullWorldMulti(zip){
+  setStatus("Converting full world → multiple schematics...");
+  try{
+    const allBlobs=[];
+    zip.forEach((path,entry)=>{
+      const l=path.toLowerCase();
+      if(l.endsWith(".schem")||l.endsWith(".schematic")||l.endsWith(".litematic")){
+        allBlobs.push(entry.async("blob"));
+      }
+    });
+    const blobs=await Promise.all(allBlobs);
+    if(blobs.length===0){setStatus("No schematics inside for multi conversion."); return;}
+
+    const zipOutput=new JSZip();
+    for(let i=0;i<blobs.length;i++){
+      const result=await m2b.convertFile(blobs[i]);
+      zipOutput.file(result.filename,result.blob);
     }
 
-  }catch(e){setStatus("Full world conversion failed: "+e);}
+    const content=await zipOutput.generateAsync({type:"blob"});
+    downloadBlob(content,"full_world_schematics.zip");
+    setStatus("Full world multiple schematics downloaded as ZIP.");
+  }catch(e){setStatus("Full world multi conversion failed: "+e);}
 }
 
 function downloadBlob(blob,filename="output.bloxdschem"){
