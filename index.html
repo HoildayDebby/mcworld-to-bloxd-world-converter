@@ -26,8 +26,8 @@ The tool will convert Minecraft world blocks or schematics into <code>.bloxdsche
 
 <script src="vendor/jszip.min.js"></script>
 <script src="vendor/m2b.js"></script>
+<script src="vendor/nbt.js"></script> <!-- JS NBT parser library -->
 <script>
-// Elements
 const drop = document.getElementById("drop");
 const fileInput = document.getElementById("file");
 const status = document.getElementById("status");
@@ -36,7 +36,7 @@ const actions = document.getElementById("actions");
 function setStatus(t){status.textContent=t;}
 function clearActions(){actions.innerHTML="";}
 
-// Drag & Drop handlers
+// Drag & Drop
 drop.addEventListener("click",()=>fileInput.click());
 drop.addEventListener("dragover",e=>{e.preventDefault();drop.classList.add("dragover");});
 drop.addEventListener("dragleave",()=>drop.classList.remove("dragover"));
@@ -48,82 +48,68 @@ drop.addEventListener("drop",e=>{
   fileInput.dispatchEvent(new Event("change"));
 });
 
-// Handle file selection
-fileInput.addEventListener("change", async (ev) => {
+fileInput.addEventListener("change", async (ev)=>{
   clearActions();
   const f = ev.target.files[0];
   if(!f) return;
   const name = f.name.toLowerCase();
   setStatus("Processing: "+f.name);
 
-  if(name.endsWith(".schem") || name.endsWith(".schematic") || name.endsWith(".litematic")){
+  if(name.endsWith(".schem")||name.endsWith(".schematic")||name.endsWith(".litematic")){
     convertWithM2B(f);
-  } else if(name.endsWith(".mcworld")) {
-    handleMcworldFile(f);
+  } else if(name.endsWith(".mcworld")){
+    convertMcworldToSchematic(f);
   } else {
     setStatus("Unsupported file type.");
   }
 });
 
-// Convert schematic files
 async function convertWithM2B(blob){
   try{
     setStatus("Converting → .bloxdschem ...");
-    if(!window.m2b || !m2b.convertFile) throw "M2B converter missing";
     const result = await m2b.convertFile(blob);
-    downloadBlob(result.blob, result.filename);
+    downloadBlob(result.blob,result.filename);
     setStatus("Done! File downloaded.");
   }catch(e){setStatus("Conversion failed: "+e);}
 }
 
-// Handle .mcworld files
-async function handleMcworldFile(f){
+// NEW: Convert .mcworld to schematic
+async function convertMcworldToSchematic(f){
+  setStatus("Reading .mcworld...");
+  const buf = await f.arrayBuffer();
+  const zip = await JSZip.loadAsync(buf);
+
+  // Ignore non-build files
+  const regionFiles = Object.keys(zip.files).filter(p=>p.startsWith("region/") && p.endsWith(".mca"));
+  if(regionFiles.length===0){
+    setStatus("No region files found. Cannot convert.");
+    return;
+  }
+
+  setStatus(`Found ${regionFiles.length} region files. Parsing blocks...`);
+
+  // Parse blocks (pseudo code, needs NBT parsing)
+  let tempSchematic = {width:0, height:0, length:0, blocks:[], palette:{}};
+
+  for(let rFile of regionFiles){
+    const data = await zip.files[rFile].async("arraybuffer");
+    const chunks = parseMCAtoChunks(data); // parseMCAtoChunks = your NBT parser logic
+    // For each chunk, extract blocks and add to tempSchematic
+    // ...
+  }
+
+  setStatus("Building temporary schematic...");
+
+  // Convert tempSchematic to Bloxd.io using M2B
   try{
-    setStatus("Reading .mcworld...");
-    const buf = await f.arrayBuffer();
-    const zip = await JSZip.loadAsync(buf);
-
-    const hasWorld = Object.keys(zip.files).some(p => p.toLowerCase().endsWith("level.dat"));
-    if(!hasWorld){
-      setStatus("No level.dat found. This is not a valid Minecraft world.");
-      return;
-    }
-
-    setStatus("Full Minecraft world detected.");
-
-    // Show conversion options
-    const btnSingle = document.createElement("button");
-    btnSingle.textContent = "Convert Full World → Single Schematic";
-    btnSingle.onclick = () => {
-      alert("Full world block conversion not implemented yet. Coming soon!");
-    };
-    actions.appendChild(btnSingle);
-
-    const btnMulti = document.createElement("button");
-    btnMulti.textContent = "Convert Full World → Multiple Schematics (ZIP)";
-    btnMulti.onclick = () => {
-      alert("Full world block conversion not implemented yet. Coming soon!");
-    };
-    actions.appendChild(btnMulti);
-
-    // Check for any schematics inside mcworld
-    const schemFiles = Object.keys(zip.files).filter(p => {
-      const l = p.toLowerCase();
-      return l.endsWith(".schem") || l.endsWith(".schematic") || l.endsWith(".litematic");
-    });
-
-    if(schemFiles.length > 0){
-      setStatus(`Found ${schemFiles.length} schematic(s) inside .mcworld. Converting first one...`);
-      const blob = await zip.files[schemFiles[0]].async("blob");
-      convertWithM2B(blob);
-    }
-
-  } catch(e) {
-    setStatus("Error reading .mcworld: " + e);
+    const result = await m2b.convertSchematicObject(tempSchematic); // hypothetical function
+    downloadBlob(result.blob,result.filename);
+    setStatus("Done! Bloxd.io schematic ready.");
+  }catch(e){
+    setStatus("Conversion failed: "+e);
   }
 }
 
-// Download helper
 function downloadBlob(blob, filename="output.bloxdschem"){
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
